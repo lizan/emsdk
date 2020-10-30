@@ -2454,6 +2454,10 @@ def set_active_tools(tools_to_activate, permanently_activate, system):
     write_set_env_script(env_string)
 
     if permanently_activate:
+      # Now construct a differnt set of values to set in the registry.
+      # This is different in particlar for PATH which is based on combining the
+      # new and old values.
+      env_vars_to_add = get_env_vars_to_add(tools_to_activate, registry=True, system=system)
       win_set_environment_variables(env_vars_to_add, system)
 
   return tools_to_activate
@@ -2472,13 +2476,6 @@ def currently_active_tools():
     if tool.is_active():
       active_tools += [tool]
   return active_tools
-
-
-# http://stackoverflow.com/questions/480214/how-do-you-remove-duplicates-from-a-list-in-python-whilst-preserving-order
-def unique_items(seq):
-  seen = set()
-  seen_add = seen.add
-  return [x for x in seq if x not in seen and not seen_add(x)]
 
 
 # Tests if a path is contained in the given list, but with separators normalized.
@@ -2500,11 +2497,11 @@ def to_msys_path(p):
 
 # Looks at the current PATH and adds and removes entries so that the PATH reflects
 # the set of given active tools.
-def adjusted_path(tools_to_activate, system=False):
+def adjusted_path(tools_to_activate, registry=False, system=False):
   # These directories should be added to PATH
   path_add = get_required_path(tools_to_activate)
   # These already exist.
-  if WINDOWS and not MSYS:
+  if (WINDOWS and not MSYS) and registry:
     existing_path = win_get_environment_variable('PATH', system=system).split(ENVPATH_SEPARATOR)
   else:
     existing_path = os.environ['PATH'].split(ENVPATH_SEPARATOR)
@@ -2513,10 +2510,10 @@ def adjusted_path(tools_to_activate, system=False):
   existing_emsdk_tools = [i for i in existing_path if to_unix_path(i).startswith(emsdk_root_path)]
   new_emsdk_tools = [i for i in path_add if not normalized_contains(existing_emsdk_tools, i)]
 
-  # Existing non-emsdk tools
-  existing_path = [i for i in existing_path if not to_unix_path(i).startswith(emsdk_root_path)]
+  # Filter out elements that already exist in the current path
   new_path = [i for i in path_add if not normalized_contains(existing_path, i)]
-  whole_path = unique_items(new_path + existing_path)
+
+  whole_path = new_path + existing_path
   if MSYS:
     # XXX Hack: If running native Windows Python in MSYS prompt where PATH
     # entries look like "/c/Windows/System32", os.environ['PATH']
@@ -2529,10 +2526,10 @@ def adjusted_path(tools_to_activate, system=False):
   return (separator.join(whole_path), new_emsdk_tools)
 
 
-def get_env_vars_to_add(tools_to_activate):
+def get_env_vars_to_add(tools_to_activate, registry=False, system=False):
   env_vars_to_add = []
 
-  newpath, added_path = adjusted_path(tools_to_activate)
+  newpath, added_path = adjusted_path(tools_to_activate, registry, system)
 
   # Don't bother setting the path if there are no changes.
   if os.environ['PATH'] != newpath:
